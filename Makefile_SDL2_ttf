@@ -1,0 +1,67 @@
+# -*- mode: makefile -*-
+
+ifeq ($(strip $(DEVKITARM)),)
+$(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>devkitARM")
+endif
+
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>devkitPRO")
+endif
+
+include $(DEVKITARM)/base_tools
+
+TARGET_LIB = libSDL2_ttf.a
+
+SDL_LIB_FILENAME = SDL2_ttf-2.0.15
+SDL_LIB_FILENAME_CMP = SDL2_ttf-2.0.15.tar.gz
+SDL_LIB_DOWNLOAD = https://www.libsdl.org/projects/SDL_ttf/release/$(SDL_LIB_FILENAME_CMP)
+
+DIR_PREFIX = $(SDL_LIB_FILENAME)
+
+FETCH ?= curl -O
+EXTRACT ?= tar -xzf
+
+OBJS =	$(DIR_PREFIX)/SDL_ttf.o \
+	$(DIR_PREFIX)/glfont.o \
+	$(DIR_PREFIX)/showfont.o
+
+CTRULIB	:= $(DEVKITPRO)/libctru
+INCLUDES = -I./$(DIR_PREFIX)/ -I$(CTRULIB)/include
+
+#---------------------------------------------------------------------------------
+# options for code generation
+#---------------------------------------------------------------------------------
+ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
+CFLAGS		:=	-g -Wall -O2 -mword-relocations -fno-short-enums \
+			-fomit-frame-pointer -ffast-math \
+			$(ARCH)
+CFLAGS		+=	-I$(SDL_LIB_FILENAME)/external/freetype-2.9.1/include $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS
+CXXFLAGS	:=      $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+ASFLAGS		:=	-g $(ARCH)
+LDFLAGS		:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+
+CFLAGS		+= -Wno-unused-variable
+
+LIBS	:= -lfreetype -lm -lSDL2 -lcrtu
+
+all: fetch $(OBJS) $(TARGET_LIB)
+
+fetch:
+	@echo "Fetching $(SDL_LIB_FILENAME_CMP)..."
+	@$(FETCH) $(SDL_LIB_DOWNLOAD)
+	@echo "Extracting..."
+	@$(EXTRACT) $(SDL_LIB_FILENAME_CMP)
+	@echo "Success!"
+
+$(TARGET_LIB): $(OBJS)
+	$(AR) -rc $@ $^
+
+install: $(TARGET_LIB)
+	@mkdir -p $(DEVKITPRO)/portlibs/3ds/lib
+	@cp  $(TARGET_LIB) $(DEVKITPRO)/portlibs/3ds/lib
+	@mkdir -p $(DEVKITPRO)/portlibs/3ds/include/SDL2
+	@cp $(DIR_PREFIX)/*.h $(DEVKITPRO)/portlibs/3ds/include/SDL2
+	@echo "Installed!"
+
+clean:
+	@rm -rf $(OBJS) $(TARGET_LIB) $(SDL_LIB_FILENAME_CMP)

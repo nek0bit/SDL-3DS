@@ -1,0 +1,12 @@
+aemstro_as.py
+SDL2-3DS/src/*.o
+SDL2-3DS/src/*/*.o
+SDL2-3DS/src/*/*/*.o
+SDL2-3DS/src/render/3ds/shader_vsh_shbin.h
+libSDL2.a
+SDL2_image-2.0.5.tar.gz
+SDL2_image-2.0.5/
+SDL2_ttf-2.0.15.tar.gz
+SDL2_ttf-2.0.15/
+libSDL2_image.a
+libSDL2_ttf.a

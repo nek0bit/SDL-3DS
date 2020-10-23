@@ -35,7 +35,7 @@ ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
 CFLAGS		:=	-g -Wall -O2 -mword-relocations \
 			-fomit-frame-pointer -ffast-math \
 			$(ARCH)
-CFLAGS		+=	-I$(SDL_LIB_FILENAME)/external/freetype-2.9.1/include -I$(DEVKITPRO)/portlibs/3ds/include/SDL2 $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS
+CFLAGS		+= -I$(DEVKITPRO)/portlibs/3ds/include/SDL2	-I$(SDL_LIB_FILENAME)/external/freetype-2.9.1/include $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS
 CXXFLAGS	:=      $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 ASFLAGS		:=	-g $(ARCH)
 LDFLAGS		:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
@@ -53,6 +53,8 @@ fetch:
 	@echo "Extracting..."
 	@$(EXTRACT) $(SDL_LIB_FILENAME_CMP)
 	@echo "Success!"
+	@echo "Patching implicit declaration of function..."
+	sed -i 's/SDL_ceilf/SDL_ceil/g' $(SDL_LIB_FILENAME)/SDL_ttf.c
 
 $(TARGET_LIB): $(OBJS)
 	$(AR) -rc $@ $^

@@ -26,41 +26,38 @@
 #include "../SDL_sysrender.h"
 #include <3ds.h>
 #include "shader_vsh_shbin.h"
-#include "../../../include/SDL_render_3ds.h"
 
-void GPU_SetTexture(GPU_TEXUNIT unit, u32* data, u16 width, u16 height, u32 param, GPU_TEXCOLOR colorType)
+
+
+void GPUCMD_Finalize(void)
 {
-	switch (unit)
-	{
-	case GPU_TEXUNIT0:
-		GPUCMD_AddWrite(GPUREG_TEXUNIT0_TYPE, colorType);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT0_ADDR1, ((u32)data)>>3);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT0_DIM, (width<<16)|height);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT0_PARAM, param);
-		break;
-		
-	case GPU_TEXUNIT1:
-		GPUCMD_AddWrite(GPUREG_TEXUNIT1_TYPE, colorType);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT1_ADDR, ((u32)data)>>3);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT1_DIM, (width<<16)|height);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT1_PARAM, param);
-		break;
-		
-	case GPU_TEXUNIT2:
-		GPUCMD_AddWrite(GPUREG_TEXUNIT2_TYPE, colorType);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT2_ADDR, ((u32)data)>>3);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT2_DIM, (width<<16)|height);
-		GPUCMD_AddWrite(GPUREG_TEXUNIT2_PARAM, param);
-		break;
-	}
+	GPUCMD_AddMaskedWrite(GPUREG_PRIMITIVE_CONFIG, 0x8, 0x00000000);
+	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_INVALIDATE, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678);
+	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678); //not the cleanest way of guaranteeing 0x10-byte size but whatever good enough for now
 }
 
-void GPU_SetAlphaBlending(GPU_BLENDEQUATION colorEquation, GPU_BLENDEQUATION alphaEquation,
-	GPU_BLENDFACTOR colorSrc, GPU_BLENDFACTOR colorDst,
-	GPU_BLENDFACTOR alphaSrc, GPU_BLENDFACTOR alphaDst)
+extern u32 __ctru_linear_heap;
+extern u32 __ctru_linear_heap_size;
+
+void GPUCMD_FlushAndRun(void)
 {
-	GPUCMD_AddWrite(GPUREG_BLEND_FUNC, colorEquation | (alphaEquation<<8) | (colorSrc<<16) | (colorDst<<20) | (alphaSrc<<24) | (alphaDst<<28));
-	GPUCMD_AddMaskedWrite(GPUREG_COLOR_OPERATION, 0x2, 0x00000100);
+	//take advantage of GX_FlushCacheRegions to flush gsp heap
+	GX_FlushCacheRegions(gpuCmdBuf, gpuCmdBufOffset*4, (u32 *) __ctru_linear_heap, __ctru_linear_heap_size, NULL, 0);
+	GX_ProcessCommandList(gpuCmdBuf, gpuCmdBufOffset*4, 0x0);
+}
+
+void GPU_Init(Handle *gsphandle)
+{
+	gpuCmdBuf=NULL;
+	gpuCmdBufSize=0;
+	gpuCmdBufOffset=0;
+}
+
+void GPU_Reset(u32* gxbuf, u32* gpuBuf, u32 gpuBufSize)
+{
+	GPUCMD_SetBuffer(gpuBuf, gpuBufSize, 0);
 }
 
 void GPU_SetFloatUniform(GPU_SHADER_TYPE type, u32 startreg, u32* data, u32 numreg)
@@ -73,81 +70,8 @@ void GPU_SetFloatUniform(GPU_SHADER_TYPE type, u32 startreg, u32* data, u32 numr
 	GPUCMD_AddWrites(GPUREG_VSH_FLOATUNIFORM_DATA+regOffset, data, numreg*4);
 }
 
-void GPU_DrawArray(GPU_Primitive_t primitive, u32 first, u32 count)
-{
-	//set primitive type
-	GPUCMD_AddMaskedWrite(GPUREG_PRIMITIVE_CONFIG, 0x2, primitive);
-	GPUCMD_AddMaskedWrite(GPUREG_RESTART_PRIMITIVE, 0x2, 0x00000001);
-	//index buffer address register should be cleared (except bit 31) before drawing
-	GPUCMD_AddWrite(GPUREG_INDEXBUFFER_CONFIG, 0x80000000);
-	//pass number of vertices
-	GPUCMD_AddWrite(GPUREG_NUMVERTICES, count);
-	//set first vertex
-	GPUCMD_AddWrite(GPUREG_VERTEX_OFFSET, first);
 
-	//all the following except 0x000F022E might be useless
-	GPUCMD_AddMaskedWrite(GPUREG_GEOSTAGE_CONFIG2, 0x1, 0x00000001);
-	GPUCMD_AddMaskedWrite(GPUREG_START_DRAW_FUNC0, 0x1, 0x00000000);
-	GPUCMD_AddWrite(GPUREG_DRAWARRAYS, 0x00000001);
-	GPUCMD_AddMaskedWrite(GPUREG_START_DRAW_FUNC0, 0x1, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_VTX_FUNC, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
-}
-
-void GPU_SetAttributeBuffers(u8 totalAttributes, u32* baseAddress, u64 attributeFormats, u16 attributeMask, u64 attributePermutation, u8 numBuffers, u32 bufferOffsets[], u64 bufferPermutations[], u8 bufferNumAttributes[])
-{
-	const u8 GPU_FORMATSIZE[4]={1,1,2,4};
-	u32 param[0x28];
-
-	memset(param, 0x00, 0x28*4);
-
-	param[0x0]=((u32)baseAddress)>>3;
-	param[0x1]=attributeFormats&0xFFFFFFFF;
-	param[0x2]=((totalAttributes-1)<<28)|((attributeMask&0xFFF)<<16)|((attributeFormats>>32)&0xFFFF);
-
-	int i, j;
-	u8 sizeTable[0xC];
-	for(i=0;i<totalAttributes;i++)
-	{
-		u8 v=attributeFormats&0xF;
-		sizeTable[i]=GPU_FORMATSIZE[v&3]*((v>>2)+1);
-		attributeFormats>>=4;
-	}
-
-	for(i=0;i<numBuffers;i++)
-	{
-		u16 stride=0;
-		param[3*(i+1)+0]=bufferOffsets[i];
-		param[3*(i+1)+1]=bufferPermutations[i]&0xFFFFFFFF;
-		for(j=0;j<bufferNumAttributes[i];j++)stride+=sizeTable[(bufferPermutations[i]>>(4*j))&0xF];
-		param[3*(i+1)+2]=(bufferNumAttributes[i]<<28)|((stride&0xFFF)<<16)|((bufferPermutations[i]>>32)&0xFFFF);
-	}
-
-	GPUCMD_AddIncrementalWrites(GPUREG_ATTRIBBUFFERS_LOC, param, 0x00000027);
-
-	GPUCMD_AddMaskedWrite(GPUREG_VSH_INPUTBUFFER_CONFIG, 0xB, 0xA0000000|(totalAttributes-1));
-	GPUCMD_AddWrite(GPUREG_VSH_NUM_ATTR, (totalAttributes-1));
-
-	GPUCMD_AddIncrementalWrites(GPUREG_VSH_ATTRIBUTES_PERMUTATION_LOW, ((u32[]){attributePermutation&0xFFFFFFFF, (attributePermutation>>32)&0xFFFF}), 2);
-}
-
-
-void GPU_SetTexEnv(u8 id, u16 rgbSources, u16 alphaSources, u16 rgbOperands, u16 alphaOperands, GPU_COMBINEFUNC rgbCombine, GPU_COMBINEFUNC alphaCombine, u32 constantColor)
-{
-	const u8 GPU_TEVID[]={0xC0,0xC8,0xD0,0xD8,0xF0,0xF8};
-	if(id>6)return;
-	u32 param[0x5];
-	memset(param, 0x00, 5*4);
-
-	param[0x0]=(alphaSources<<16)|(rgbSources);
-	param[0x1]=(alphaOperands<<12)|(rgbOperands);
-	param[0x2]=(alphaCombine<<16)|(rgbCombine);
-	param[0x3]=constantColor;
-	param[0x4]=0x00000000; // ?
-
-	GPUCMD_AddIncrementalWrites(GPUREG_0000|GPU_TEVID[id], param, 0x00000005);
-}
-
+//takes PAs as arguments
 void GPU_SetViewport(u32* depthBuffer, u32* colorBuffer, u32 x, u32 y, u32 w, u32 h)
 {
 	u32 param[0x4];
@@ -190,9 +114,277 @@ void GPU_SetViewport(u32* depthBuffer, u32* colorBuffer, u32 x, u32 y, u32 w, u3
 	GPUCMD_AddIncrementalWrites(GPUREG_COLORBUFFER_READ, param, 0x00000004);
 }
 
+void GPU_SetScissorTest(GPU_SCISSORMODE mode, u32 left, u32 bottom, u32 right, u32 top)
+{
+	u32 param[3];
+	
+	param[0x0] = mode;
+	param[0x1] = (bottom<<16)|(left&0xFFFF);
+	param[0x2] = ((top-1)<<16)|((right-1)&0xFFFF);
+	GPUCMD_AddIncrementalWrites(GPUREG_SCISSORTEST_MODE, param, 0x00000003);
+}
+
+void GPU_DepthMap(float zScale, float zOffset)
+{
+	GPUCMD_AddWrite(GPUREG_DEPTHMAP_ENABLE, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_DEPTHMAP_SCALE, f32tof24(zScale));
+	GPUCMD_AddWrite(GPUREG_DEPTHMAP_OFFSET, f32tof24(zOffset));
+}
+
+void GPU_SetAlphaTest(bool enable, GPU_TESTFUNC function, u8 ref)
+{
+	GPUCMD_AddWrite(GPUREG_FRAGOP_ALPHA_TEST, (enable&1)|((function&7)<<4)|(ref<<8));
+}
+
+void GPU_SetStencilTest(bool enable, GPU_TESTFUNC function, u8 ref, u8 input_mask, u8 write_mask)
+{
+	GPUCMD_AddWrite(GPUREG_STENCIL_TEST, (enable&1)|((function&7)<<4)|(write_mask<<8)|(ref<<16)|(input_mask<<24));
+}
+
+void GPU_SetStencilOp(GPU_STENCILOP sfail, GPU_STENCILOP dfail, GPU_STENCILOP pass)
+{
+	GPUCMD_AddWrite(GPUREG_STENCIL_OP, sfail | (dfail << 4) | (pass << 8));
+}
+
+void GPU_SetDepthTestAndWriteMask(bool enable, GPU_TESTFUNC function, GPU_WRITEMASK writemask)
+{
+	GPUCMD_AddWrite(GPUREG_DEPTH_COLOR_MASK, (enable&1)|((function&7)<<4)|(writemask<<8));
+}
+
+void GPU_SetAlphaBlending(GPU_BLENDEQUATION colorEquation, GPU_BLENDEQUATION alphaEquation,
+	GPU_BLENDFACTOR colorSrc, GPU_BLENDFACTOR colorDst,
+	GPU_BLENDFACTOR alphaSrc, GPU_BLENDFACTOR alphaDst)
+{
+	GPUCMD_AddWrite(GPUREG_BLEND_FUNC, colorEquation | (alphaEquation<<8) | (colorSrc<<16) | (colorDst<<20) | (alphaSrc<<24) | (alphaDst<<28));
+	GPUCMD_AddMaskedWrite(GPUREG_COLOR_OPERATION, 0x2, 0x00000100);
+}
+
+void GPU_SetColorLogicOp(GPU_LOGICOP op)
+{
+	GPUCMD_AddWrite(GPUREG_LOGIC_OP, op);
+	GPUCMD_AddMaskedWrite(GPUREG_COLOR_OPERATION, 0x2, 0x00000000);
+}
+
+void GPU_SetBlendingColor(u8 r, u8 g, u8 b, u8 a)
+{
+	GPUCMD_AddWrite(GPUREG_BLEND_COLOR, r | (g << 8) | (b << 16) | (a << 24));
+}
+
+void GPU_SetTextureEnable(GPU_TEXUNIT units)
+{
+	GPUCMD_AddMaskedWrite(GPUREG_SH_OUTATTR_CLOCK, 0x2, units<<8); // enables texcoord outputs
+	GPUCMD_AddWrite(GPUREG_TEXUNIT_CONFIG, 0x00011000|units); // enables texture units
+}
+
+void GPU_SetTexture(GPU_TEXUNIT unit, u32* data, u16 width, u16 height, u32 param, GPU_TEXCOLOR colorType)
+{
+	switch (unit)
+	{
+	case GPU_TEXUNIT0:
+		GPUCMD_AddWrite(GPUREG_TEXUNIT0_TYPE, colorType);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT0_ADDR1, ((u32)data)>>3);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT0_DIM, (width<<16)|height);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT0_PARAM, param);
+		break;
+		
+	case GPU_TEXUNIT1:
+		GPUCMD_AddWrite(GPUREG_TEXUNIT1_TYPE, colorType);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT1_ADDR, ((u32)data)>>3);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT1_DIM, (width<<16)|height);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT1_PARAM, param);
+		break;
+		
+	case GPU_TEXUNIT2:
+		GPUCMD_AddWrite(GPUREG_TEXUNIT2_TYPE, colorType);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT2_ADDR, ((u32)data)>>3);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT2_DIM, (width<<16)|height);
+		GPUCMD_AddWrite(GPUREG_TEXUNIT2_PARAM, param);
+		break;
+	}
+}
+
+void GPU_SetTextureBorderColor(GPU_TEXUNIT unit,u32 borderColor)
+{
+	switch (unit)
+	{
+	case GPU_TEXUNIT0:
+		GPUCMD_AddWrite(GPUREG_TEXUNIT0_BORDER_COLOR, borderColor);
+		break;
+		
+	case GPU_TEXUNIT1:
+		GPUCMD_AddWrite(GPUREG_TEXUNIT1_BORDER_COLOR, borderColor);
+		break;
+		
+	case GPU_TEXUNIT2:
+		GPUCMD_AddWrite(GPUREG_TEXUNIT2_BORDER_COLOR, borderColor);
+		break;
+	}
+}
+
+const u8 GPU_FORMATSIZE[4]={1,1,2,4};
+
+void GPU_SetAttributeBuffers(u8 totalAttributes, u32* baseAddress, u64 attributeFormats, u16 attributeMask, u64 attributePermutation, u8 numBuffers, u32 bufferOffsets[], u64 bufferPermutations[], u8 bufferNumAttributes[])
+{
+	u32 param[0x28];
+
+	memset(param, 0x00, 0x28*4);
+
+	param[0x0]=((u32)baseAddress)>>3;
+	param[0x1]=attributeFormats&0xFFFFFFFF;
+	param[0x2]=((totalAttributes-1)<<28)|((attributeMask&0xFFF)<<16)|((attributeFormats>>32)&0xFFFF);
+
+	int i, j;
+	u8 sizeTable[0xC];
+	for(i=0;i<totalAttributes;i++)
+	{
+		u8 v=attributeFormats&0xF;
+		sizeTable[i]=GPU_FORMATSIZE[v&3]*((v>>2)+1);
+		attributeFormats>>=4;
+	}
+
+	for(i=0;i<numBuffers;i++)
+	{
+		u16 stride=0;
+		param[3*(i+1)+0]=bufferOffsets[i];
+		param[3*(i+1)+1]=bufferPermutations[i]&0xFFFFFFFF;
+		for(j=0;j<bufferNumAttributes[i];j++)stride+=sizeTable[(bufferPermutations[i]>>(4*j))&0xF];
+		param[3*(i+1)+2]=(bufferNumAttributes[i]<<28)|((stride&0xFFF)<<16)|((bufferPermutations[i]>>32)&0xFFFF);
+	}
+
+	GPUCMD_AddIncrementalWrites(GPUREG_ATTRIBBUFFERS_LOC, param, 0x00000027);
+
+	GPUCMD_AddMaskedWrite(GPUREG_VSH_INPUTBUFFER_CONFIG, 0xB, 0xA0000000|(totalAttributes-1));
+	GPUCMD_AddWrite(GPUREG_VSH_NUM_ATTR, (totalAttributes-1));
+
+	GPUCMD_AddIncrementalWrites(GPUREG_VSH_ATTRIBUTES_PERMUTATION_LOW, ((u32[]){attributePermutation&0xFFFFFFFF, (attributePermutation>>32)&0xFFFF}), 2);
+}
+
+void GPU_SetAttributeBuffersAddress(u32* baseAddress)
+{
+	GPUCMD_AddWrite(GPUREG_ATTRIBBUFFERS_LOC, ((u32)baseAddress)>>3);
+}
+
+void GPU_SetFaceCulling(GPU_CULLMODE mode)
+{
+	GPUCMD_AddWrite(GPUREG_FACECULLING_CONFIG, mode&0x3);
+}
+
+void GPU_SetCombinerBufferWrite(u8 rgb_config, u8 alpha_config)
+{
+    GPUCMD_AddMaskedWrite(GPUREG_TEXENV_UPDATE_BUFFER, 0x2, (rgb_config << 8) | (alpha_config << 12));
+}
+
+const u8 GPU_TEVID[]={0xC0,0xC8,0xD0,0xD8,0xF0,0xF8};
+
+void GPU_SetTexEnv(u8 id, u16 rgbSources, u16 alphaSources, u16 rgbOperands, u16 alphaOperands, GPU_COMBINEFUNC rgbCombine, GPU_COMBINEFUNC alphaCombine, u32 constantColor)
+{
+	if(id>6)return;
+	u32 param[0x5];
+	memset(param, 0x00, 5*4);
+
+	param[0x0]=(alphaSources<<16)|(rgbSources);
+	param[0x1]=(alphaOperands<<12)|(rgbOperands);
+	param[0x2]=(alphaCombine<<16)|(rgbCombine);
+	param[0x3]=constantColor;
+	param[0x4]=0x00000000; // ?
+
+	GPUCMD_AddIncrementalWrites(GPUREG_0000|GPU_TEVID[id], param, 0x00000005);
+}
+
+void GPU_DrawArray(GPU_Primitive_t primitive, u32 first, u32 count)
+{
+	//set primitive type
+	GPUCMD_AddMaskedWrite(GPUREG_PRIMITIVE_CONFIG, 0x2, primitive);
+	GPUCMD_AddMaskedWrite(GPUREG_RESTART_PRIMITIVE, 0x2, 0x00000001);
+	//index buffer address register should be cleared (except bit 31) before drawing
+	GPUCMD_AddWrite(GPUREG_INDEXBUFFER_CONFIG, 0x80000000);
+	//pass number of vertices
+	GPUCMD_AddWrite(GPUREG_NUMVERTICES, count);
+	//set first vertex
+	GPUCMD_AddWrite(GPUREG_VERTEX_OFFSET, first);
+
+	//all the following except 0x000F022E might be useless
+	GPUCMD_AddMaskedWrite(GPUREG_GEOSTAGE_CONFIG2, 0x1, 0x00000001);
+	GPUCMD_AddMaskedWrite(GPUREG_START_DRAW_FUNC0, 0x1, 0x00000000);
+	GPUCMD_AddWrite(GPUREG_DRAWARRAYS, 0x00000001);
+	GPUCMD_AddMaskedWrite(GPUREG_START_DRAW_FUNC0, 0x1, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_VTX_FUNC, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
+}
+
+void GPU_DrawElements(GPU_Primitive_t primitive, u32* indexArray, u32 n)
+{
+	//set primitive type
+	GPUCMD_AddMaskedWrite(GPUREG_PRIMITIVE_CONFIG, 0x2, primitive);
+	GPUCMD_AddMaskedWrite(GPUREG_RESTART_PRIMITIVE, 0x2, 0x00000001);
+	//index buffer (TODO : support multiple types)
+	GPUCMD_AddWrite(GPUREG_INDEXBUFFER_CONFIG, 0x80000000|((u32)indexArray));
+	//pass number of vertices
+	GPUCMD_AddWrite(GPUREG_NUMVERTICES, n);
+	
+	GPUCMD_AddWrite(GPUREG_VERTEX_OFFSET, 0x00000000);
+	
+	GPUCMD_AddMaskedWrite(GPUREG_GEOSTAGE_CONFIG, 0x2, 0x00000100);
+	GPUCMD_AddMaskedWrite(GPUREG_GEOSTAGE_CONFIG2, 0x2, 0x00000100);
+	
+	GPUCMD_AddMaskedWrite(GPUREG_START_DRAW_FUNC0, 0x1, 0x00000000);
+	GPUCMD_AddWrite(GPUREG_DRAWELEMENTS, 0x00000001);
+	GPUCMD_AddMaskedWrite(GPUREG_START_DRAW_FUNC0, 0x1, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_VTX_FUNC, 0x00000001);
+	
+	// CHECKME: does this one also require GPUREG_FRAMEBUFFER_FLUSH at the end?
+}
+
+void GPU_FinishDrawing()
+{
+	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_INVALIDATE, 0x00000001);
+	GPUCMD_AddWrite(GPUREG_EARLYDEPTH_CLEAR, 0x00000001);
+}
+
+
+
+
 /* 3DS renderer implementation, based on the CTRULIB  */
 
-	
+
+extern int SDL_RecreateWindow(SDL_Window * window, Uint32 flags);
+
+
+static SDL_Renderer *N3DS_CreateRenderer(SDL_Window * window, Uint32 flags);
+static void N3DS_WindowEvent(SDL_Renderer * renderer,
+                             const SDL_WindowEvent *event);
+static int N3DS_CreateTexture(SDL_Renderer * renderer, SDL_Texture * texture);
+static int N3DS_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+                              const SDL_Rect * rect, const void *pixels,
+                              int pitch);
+static int N3DS_LockTexture(SDL_Renderer * renderer, SDL_Texture * texture,
+                            const SDL_Rect * rect, void **pixels, int *pitch);
+static void N3DS_UnlockTexture(SDL_Renderer * renderer,
+                               SDL_Texture * texture);
+static int N3DS_SetRenderTarget(SDL_Renderer * renderer,
+                                 SDL_Texture * texture);
+static int N3DS_UpdateViewport(SDL_Renderer * renderer);
+static int N3DS_RenderClear(SDL_Renderer * renderer);
+static int N3DS_RenderDrawPoints(SDL_Renderer * renderer,
+                                 const SDL_FPoint * points, int count);
+static int N3DS_RenderDrawLines(SDL_Renderer * renderer,
+                                const SDL_FPoint * points, int count);
+static int N3DS_RenderFillRects(SDL_Renderer * renderer,
+                                const SDL_FRect * rects, int count);
+static int N3DS_RenderCopy(SDL_Renderer * renderer, SDL_Texture * texture,
+                           const SDL_Rect * srcrect,
+                           const SDL_FRect * dstrect);
+static int N3DS_RenderReadPixels(SDL_Renderer * renderer, const SDL_Rect * rect,
+                    Uint32 pixel_format, void * pixels, int pitch);
+static int N3DS_RenderCopyEx(SDL_Renderer * renderer, SDL_Texture * texture,
+                         const SDL_Rect * srcrect, const SDL_FRect * dstrect,
+                         const double angle, const SDL_FPoint *center, const SDL_RendererFlip flip);
+static void N3DS_RenderPresent(SDL_Renderer * renderer);
+static void N3DS_DestroyTexture(SDL_Renderer * renderer,
+                                SDL_Texture * texture);
+static void N3DS_DestroyRenderer(SDL_Renderer * renderer);
+
 /*
 SDL_RenderDriver N3DS_RenderDriver = {
     N3DS_CreateRenderer,
@@ -491,7 +683,6 @@ int TextureUnswizzle(N3DS_TextureData *n3ds_texture)
 SDL_Renderer *
 N3DS_CreateRenderer(SDL_Window * window, Uint32 flags)
 {
-	
 	SDL_Renderer *renderer;
 	N3DS_RenderData *data;
 	int pixelformat;
@@ -566,10 +757,9 @@ N3DS_CreateRenderer(SDL_Window * window, Uint32 flags)
 	data->pool_size         = N3DS_TEMPPOOL_SIZE;
 
 	gfxInitDefault();
-	GPUCMD_SetBuffer(NULL, 0, 0);
+	GPU_Init(NULL);
 	gfxSet3D(false);
-	//GPU_Reset(NULL, data->gpu_cmd, N3DS_GPU_FIFO_SIZE);
-	GPUCMD_SetBuffer(NULL, data->gpu_cmd, N3DS_GPU_FIFO_SIZE);
+	GPU_Reset(NULL, data->gpu_cmd, N3DS_GPU_FIFO_SIZE);
 
 	//Setup the shader
 	data->dvlb = DVLB_ParseFile((u32 *)shader_vsh_shbin, shader_vsh_shbin_size);
@@ -589,21 +779,12 @@ N3DS_CreateRenderer(SDL_Window * window, Uint32 flags)
 		(u32 *)osConvertVirtToPhys((u32)data->gpu_fb_addr),
 		0, 0, 240, 400);
 
-	//GPU_DepthMap(-1.0f, 0.0f);
-	GPUCMD_AddWrite(GPUREG_DEPTHMAP_ENABLE, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_DEPTHMAP_SCALE, f32tof24(-1.0f));
-	GPUCMD_AddWrite(GPUREG_DEPTHMAP_OFFSET, f32tof24(0.0f));
-	//GPU_SetFaceCulling(GPU_CULL_NONE);
-	GPUCMD_AddWrite(GPUREG_FACECULLING_CONFIG, GPU_CULL_NONE&0x3);
-	//GPU_SetStencilTest(false, GPU_ALWAYS, 0x00, 0xFF, 0x00);
-	GPUCMD_AddWrite(GPUREG_STENCIL_TEST, (false&1)|((GPU_ALWAYS&7)<<4)|(0x00<<8)|(0x00<<16)|(0xFF<<24));
-	//GPU_SetStencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_KEEP);
-	GPUCMD_AddWrite(GPUREG_STENCIL_OP, GPU_STENCIL_KEEP | (GPU_STENCIL_KEEP << 4) | (GPU_STENCIL_KEEP << 8));
-	//GPU_SetBlendingColor(0,0,0,0);
-	GPUCMD_AddWrite(GPUREG_BLEND_COLOR, 0 | (0 << 8) | (0 << 16) | (0 << 24));
-	//GPU_SetDepthTestAndWriteMask(true, GPU_GEQUAL, GPU_WRITE_ALL);
-	
-	GPUCMD_AddWrite(GPUREG_DEPTH_COLOR_MASK, (true&1)|((GPU_GEQUAL&7)<<4)|(GPU_WRITE_ALL<<8));
+	GPU_DepthMap(-1.0f, 0.0f);
+	GPU_SetFaceCulling(GPU_CULL_NONE);
+	GPU_SetStencilTest(false, GPU_ALWAYS, 0x00, 0xFF, 0x00);
+	GPU_SetStencilOp(GPU_STENCIL_KEEP, GPU_STENCIL_KEEP, GPU_STENCIL_KEEP);
+	GPU_SetBlendingColor(0,0,0,0);
+	GPU_SetDepthTestAndWriteMask(true, GPU_GEQUAL, GPU_WRITE_ALL);
 	GPUCMD_AddMaskedWrite(GPUREG_EARLYDEPTH_TEST1, 0x1, 0);
 	GPUCMD_AddWrite(GPUREG_EARLYDEPTH_TEST2, 0);
 
@@ -614,8 +795,7 @@ N3DS_CreateRenderer(SDL_Window * window, Uint32 flags)
 		GPU_ONE, GPU_ZERO
 	);
 
-	//GPU_SetAlphaTest(false, GPU_ALWAYS, 0x00);
-	GPUCMD_AddWrite(GPUREG_FRAGOP_ALPHA_TEST, (false&1)|((GPU_ALWAYS&7)<<4)|(0x00<<8));
+	GPU_SetAlphaTest(false, GPU_ALWAYS, 0x00);
 
 	GPU_SetDummyTexEnv(1);
 	GPU_SetDummyTexEnv(2);
@@ -623,16 +803,8 @@ N3DS_CreateRenderer(SDL_Window * window, Uint32 flags)
 	GPU_SetDummyTexEnv(4);
 	GPU_SetDummyTexEnv(5);
 
-	//GPUCMD_Finalize();
-	GPUCMD_AddMaskedWrite(GPUREG_PRIMITIVE_CONFIG, 0x8, 0x00000000);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_INVALIDATE, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678);
-	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678); //not the cleanest way of guaranteeing 0x10-byte size but whatever good enough for now
-	//GPUCMD_FlushAndRun();
-	GX_FlushCacheRegions(gpuCmdBuf, gpuCmdBufOffset*4, (u32 *) 0, 0, NULL, 0);
-	GX_ProcessCommandList(gpuCmdBuf, gpuCmdBufOffset*4, 0x0);
-	
+	GPUCMD_Finalize();
+	GPUCMD_FlushAndRun();
 	gspWaitForP3D();
 
 	N3DS_pool_reset(data);
@@ -706,9 +878,7 @@ TextureActivate(SDL_Texture * texture)
 	/* We must swizzle (Z-order) textures on the 3DS */
 	TextureSwizzle(n3ds_texture);
 
-	//GPU_SetTextureEnable(GPU_TEXUNIT0);
-	GPUCMD_AddMaskedWrite(GPUREG_SH_OUTATTR_CLOCK, 0x2, GPU_TEXUNIT0<<8); // enables texcoord outputs
-	GPUCMD_AddWrite(GPUREG_TEXUNIT_CONFIG, 0x00011000|GPU_TEXUNIT0); // enables texture units
+	GPU_SetTextureEnable(GPU_TEXUNIT0);
 
 	GPU_SetTexEnv(
 		0,
@@ -952,7 +1122,6 @@ N3DS_RenderFillRects(SDL_Renderer * renderer, const SDL_FRect * rects,
 		);
 
 		GPU_DrawArray(GPU_TRIANGLE_STRIP, 0, 4);
-		
 	}
 
     return 0;
@@ -1199,19 +1368,9 @@ N3DS_RenderPresent(SDL_Renderer * renderer)
 
 	data->displayListAvail = SDL_FALSE;
 
-	//GPU_FinishDrawing();
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_INVALIDATE, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_EARLYDEPTH_CLEAR, 0x00000001);
-	GPUCMD_AddMaskedWrite(GPUREG_PRIMITIVE_CONFIG, 0x8, 0x00000000);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_FLUSH, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_FRAMEBUFFER_INVALIDATE, 0x00000001);
-	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678);
-	GPUCMD_AddWrite(GPUREG_FINALIZE, 0x12345678);
-	//GPUCMD_FlushAndRun();
-	// Possible bug in dev here
-	GX_FlushCacheRegions(gpuCmdBuf, gpuCmdBufOffset*4, (u32 *) 0, 0, NULL, 0);
-	GX_ProcessCommandList(gpuCmdBuf, gpuCmdBufOffset*4, 0x0);
+	GPU_FinishDrawing();
+	GPUCMD_Finalize();
+	GPUCMD_FlushAndRun();
 	gspWaitForP3D();
 
 	//Copy the GPU rendered FB to the screen FB
@@ -1305,7 +1464,6 @@ void matrix_gpu_set_uniform(const float *m, u32 startreg)
 	}
 
 	GPU_SetFloatUniform(GPU_VERTEX_SHADER, startreg, (u32 *)mu, 4);
-	
 }
 
 void matrix_copy(float *dst, const float *src)

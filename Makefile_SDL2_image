@@ -58,7 +58,7 @@ LDFLAGS		:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 CFLAGS		+= -Wno-unused-variable
 
-LIBS	:= -lpng -ljpeg -lm -lcrtu
+LIBS	:= -lSDL2 -lpng -ljpeg -lm -lcrtu
 CFLAGS += $(LIBS)
 
 all: $(OBJS) $(TARGET_LIB)

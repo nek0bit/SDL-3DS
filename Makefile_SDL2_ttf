@@ -32,7 +32,7 @@ INCLUDES = -I./$(DIR_PREFIX)/ -I$(CTRULIB)/include -I$(DEVKITPRO)/portlibs/3ds/i
 # options for code generation
 #---------------------------------------------------------------------------------
 ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
-CFLAGS		:=	-g -Wall -O2 -mword-relocations -fno-short-enums \
+CFLAGS		:=	-g -Wall -O2 -mword-relocations \
 			-fomit-frame-pointer -ffast-math \
 			$(ARCH)
 CFLAGS		+=	-I$(SDL_LIB_FILENAME)/external/freetype-2.9.1/include -I$(DEVKITPRO)/portlibs/3ds/include/SDL2 $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS
@@ -42,7 +42,7 @@ LDFLAGS		:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 CFLAGS		+= -Wno-unused-variable
 
-LIBS	:= -lfreetype -lm -lSDL2 -lcrtu
+LIBS	:= -lSDL2 -lfreetype -lm -lcrtu
 CFLAGS += $(LIBS)
 
 all: $(OBJS) $(TARGET_LIB)
@@ -65,4 +65,4 @@ install: $(TARGET_LIB)
 	@echo "Installed!"
 
 clean:
-	@rm -rf $(OBJS) $(TARGET_LIB) $(SDL_LIB_FILENAME_CMP)
+	@rm -rf $(OBJS) $(TARGET_LIB) 

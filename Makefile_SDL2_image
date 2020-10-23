@@ -32,6 +32,7 @@ OBJS = $(DIR_PREFIX)/IMG_jpg.o \
 	$(DIR_PREFIX)/IMG_pcx.o \
 	$(DIR_PREFIX)/IMG_pnm.o \
 	$(DIR_PREFIX)/IMG_tga.o \
+	$(DIR_PREFIX)/IMG_tif.o \
 	$(DIR_PREFIX)/IMG_webp.o \
 	$(DIR_PREFIX)/IMG_xcf.o \
 	$(DIR_PREFIX)/IMG_svg.o \
@@ -47,7 +48,7 @@ INCLUDES = -I./$(DIR_PREFIX)/ -I$(DEVKITPRO)/portlibs/3ds/include/SDL2 -I$(DEVKI
 # options for code generation
 #---------------------------------------------------------------------------------
 ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
-CFLAGS		:=	-g -Wall -O2 -mword-relocations -fno-short-enums \
+CFLAGS		:=	-g -Wall -O2 -mword-relocations \
 			-fomit-frame-pointer -ffast-math \
 			$(ARCH)
 CFLAGS		+=	 $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS -DLOAD_PNG -DLOAD_JPG 
@@ -80,4 +81,4 @@ install: $(TARGET_LIB)
 	@echo "Installed!"
 
 clean:
-	@rm -rf $(OBJS) $(TARGET_LIB) $(SDL_LIB_FILENAME_CMP)
+	@rm -rf $(OBJS) $(TARGET_LIB)

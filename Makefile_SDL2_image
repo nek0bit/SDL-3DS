@@ -18,22 +18,30 @@ SDL_LIB_FILENAME_CMP = SDL2_image-2.0.5.tar.gz
 SDL_LIB_DOWNLOAD = https://www.libsdl.org/projects/SDL_image/release/$(SDL_LIB_FILENAME_CMP)
 
 
-ifeq ($(wildcard $(SDL_LIB_FILENAME)),)
-	@echo "Warning: $(SDL_LIB_FILENAME) not found! Please run: make fetch"
-endif
 
 DIR_PREFIX = $(SDL_LIB_FILENAME)
 
 FETCH ?= curl -O
 EXTRACT ?= tar -xzf
 
-OBJS =	$(DIR_PREFIX)/showimage.o \
-	$(DIR_PREFIX)/IMG_jpg.c \
-	$(DIR_PREFIX)/IMG_png.c \
-	$(DIR_PREFIX)/IMG.c \
+OBJS = $(DIR_PREFIX)/IMG_jpg.o \
+	$(DIR_PREFIX)/IMG_png.o \
+	$(DIR_PREFIX)/IMG_bmp.o \
+	$(DIR_PREFIX)/IMG_gif.o \
+	$(DIR_PREFIX)/IMG_lbm.o \
+	$(DIR_PREFIX)/IMG_pcx.o \
+	$(DIR_PREFIX)/IMG_pnm.o \
+	$(DIR_PREFIX)/IMG_tga.o \
+	$(DIR_PREFIX)/IMG_webp.o \
+	$(DIR_PREFIX)/IMG_xcf.o \
+	$(DIR_PREFIX)/IMG_svg.o \
+	$(DIR_PREFIX)/IMG_xv.o \
+	$(DIR_PREFIX)/IMG_xpm.o \
+	$(DIR_PREFIX)/IMG_xxx.o \
+	$(DIR_PREFIX)/IMG.o \
 
 CTRULIB	:= $(DEVKITPRO)/libctru
-INCLUDES = -I./$(DIR_PREFIX)/ -I$(CTRULIB)/include
+INCLUDES = -I./$(DIR_PREFIX)/ -I$(DEVKITPRO)/portlibs/3ds/include/SDL2 -I$(DEVKITPRO)/portlibs/3ds/include/ -I$(CTRULIB)/include -I$(CTRULIB)/../portlibs/armv6k/include
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -42,14 +50,15 @@ ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
 CFLAGS		:=	-g -Wall -O2 -mword-relocations -fno-short-enums \
 			-fomit-frame-pointer -ffast-math \
 			$(ARCH)
-CFLAGS		+=	-I$(DEVKITPRO)/portlibs/3ds/include/SDL2 $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS
+CFLAGS		+=	 $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS -DLOAD_PNG -DLOAD_JPG 
 CXXFLAGS	:=      $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 ASFLAGS		:=	-g $(ARCH)
 LDFLAGS		:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 CFLAGS		+= -Wno-unused-variable
 
-LIBS	:= -lm -lSDL2 -lpng -ljpeg -lbz2
+LIBS	:= -lpng -ljpeg -lm -lcrtu
+CFLAGS += $(LIBS)
 
 all: $(OBJS) $(TARGET_LIB)
 

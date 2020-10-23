@@ -26,7 +26,7 @@ OBJS =	$(DIR_PREFIX)/SDL_ttf.o \
 	$(DIR_PREFIX)/showfont.o
 
 CTRULIB	:= $(DEVKITPRO)/libctru
-INCLUDES = -I./$(DIR_PREFIX)/ -I$(CTRULIB)/include
+INCLUDES = -I./$(DIR_PREFIX)/ -I$(CTRULIB)/include -I$(DEVKITPRO)/portlibs/3ds/include/freetype2 
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -35,7 +35,7 @@ ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
 CFLAGS		:=	-g -Wall -O2 -mword-relocations -fno-short-enums \
 			-fomit-frame-pointer -ffast-math \
 			$(ARCH)
-CFLAGS		+=	-I$(SDL_LIB_FILENAME)/external/freetype-2.9.1/include $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS
+CFLAGS		+=	-I$(SDL_LIB_FILENAME)/external/freetype-2.9.1/include -I$(DEVKITPRO)/portlibs/3ds/include/SDL2 $(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS
 CXXFLAGS	:=      $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 ASFLAGS		:=	-g $(ARCH)
 LDFLAGS		:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
@@ -43,8 +43,9 @@ LDFLAGS		:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 CFLAGS		+= -Wno-unused-variable
 
 LIBS	:= -lfreetype -lm -lSDL2 -lcrtu
+CFLAGS += $(LIBS)
 
-all: fetch $(OBJS) $(TARGET_LIB)
+all: $(OBJS) $(TARGET_LIB)
 
 fetch:
 	@echo "Fetching $(SDL_LIB_FILENAME_CMP)..."

@@ -98,7 +98,7 @@ INCLUDES = -I./$(DIR_PREFIX)/include -I$(CTRULIB)/include
 # options for code generation
 #---------------------------------------------------------------------------------
 ARCH		:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard
-CFLAGS		:=	-g -Wall -O2 -mword-relocations -fno-short-enums \
+CFLAGS		:=	-g -Wall -O2 -mword-relocations \
 			-fomit-frame-pointer -ffast-math \
 			$(ARCH)
 CFLAGS		+=	$(INCLUDES) -DARM11 -D_3DS -D__3DS__ -DSDL_BUILDING_3DS

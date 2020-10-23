@@ -92,7 +92,7 @@ OBJS =	$(DIR_PREFIX)/src/SDL.o \
 	$(DIR_PREFIX)/src/video/3ds/SDL_3dsmouse.o
 
 CTRULIB	:= $(DEVKITPRO)/libctru
-INCLUDES = -I./$(DIR_PREFIX)/include -I$(CTRULIB)/include
+INCLUDES = -I./$(DIR_PREFIX)/include -I$(CTRULIB)/include 
 
 #---------------------------------------------------------------------------------
 # options for code generation

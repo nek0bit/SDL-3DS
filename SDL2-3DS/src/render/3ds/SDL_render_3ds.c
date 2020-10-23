@@ -26,47 +26,12 @@
 #include "../SDL_sysrender.h"
 #include <3ds.h>
 #include "shader_vsh_shbin.h"
+#include "../../../include/SDL_render_3ds.h"
+
 
 /* 3DS renderer implementation, based on the CTRULIB  */
 
-
-extern int SDL_RecreateWindow(SDL_Window * window, Uint32 flags);
-
-
-static SDL_Renderer *N3DS_CreateRenderer(SDL_Window * window, Uint32 flags);
-static void N3DS_WindowEvent(SDL_Renderer * renderer,
-                             const SDL_WindowEvent *event);
-static int N3DS_CreateTexture(SDL_Renderer * renderer, SDL_Texture * texture);
-static int N3DS_UpdateTexture(SDL_Renderer * renderer, SDL_Texture * texture,
-                              const SDL_Rect * rect, const void *pixels,
-                              int pitch);
-static int N3DS_LockTexture(SDL_Renderer * renderer, SDL_Texture * texture,
-                            const SDL_Rect * rect, void **pixels, int *pitch);
-static void N3DS_UnlockTexture(SDL_Renderer * renderer,
-                               SDL_Texture * texture);
-static int N3DS_SetRenderTarget(SDL_Renderer * renderer,
-                                 SDL_Texture * texture);
-static int N3DS_UpdateViewport(SDL_Renderer * renderer);
-static int N3DS_RenderClear(SDL_Renderer * renderer);
-static int N3DS_RenderDrawPoints(SDL_Renderer * renderer,
-                                 const SDL_FPoint * points, int count);
-static int N3DS_RenderDrawLines(SDL_Renderer * renderer,
-                                const SDL_FPoint * points, int count);
-static int N3DS_RenderFillRects(SDL_Renderer * renderer,
-                                const SDL_FRect * rects, int count);
-static int N3DS_RenderCopy(SDL_Renderer * renderer, SDL_Texture * texture,
-                           const SDL_Rect * srcrect,
-                           const SDL_FRect * dstrect);
-static int N3DS_RenderReadPixels(SDL_Renderer * renderer, const SDL_Rect * rect,
-                    Uint32 pixel_format, void * pixels, int pitch);
-static int N3DS_RenderCopyEx(SDL_Renderer * renderer, SDL_Texture * texture,
-                         const SDL_Rect * srcrect, const SDL_FRect * dstrect,
-                         const double angle, const SDL_FPoint *center, const SDL_RendererFlip flip);
-static void N3DS_RenderPresent(SDL_Renderer * renderer);
-static void N3DS_DestroyTexture(SDL_Renderer * renderer,
-                                SDL_Texture * texture);
-static void N3DS_DestroyRenderer(SDL_Renderer * renderer);
-
+	
 /*
 SDL_RenderDriver N3DS_RenderDriver = {
     N3DS_CreateRenderer,
